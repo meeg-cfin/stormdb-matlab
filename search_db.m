@@ -1,32 +1,27 @@
 
-function [file,index] = search_db(S)
+function [file,subject] = search_db(S)
 
 % Full path to raw files in Storm database at CFIN, Aarhus University
 % FORMAT file = search_db(S)
 % 
-% Input:
+% Input :
 %
 % S.project  - project Code or ID
-% S.modality - modality     
+% S.modality - modality   
+% S.study    - study                (optional)
 % S.series   - series               (optional)
 % S.status   - subject identifier   (optional)
 % S.aux      - series aux files     (optional)
 % S.info     - series info          (optional)
 %
-% Returns:
+%
+% Output :
 % 
-% file  - full path to raw files    (cell array)
+% file  - full path to raw files    (cell hierarchy)
 % index - subject no. for indexing  (cell array)
 %
-%
-% Example :
-%
-% S.project = 'MINDLAB2011_21-MMN_generator_MEG';
-% S.mod     = 'MEG';
-% S.series  = {'part A'  'part B'}; 
-%
-% ________________________________________________________
-% Copyright (C) 2015 Martin Dietz, CFIN, Aarhus University
+% _____________________________________________________________
+% (C) 2015-17 Martin Dietz, CFIN, Aarhus University
 
 
 
@@ -60,44 +55,8 @@ modtype = textscan(modtype,'%s');
 modtype = modtype{:};
 
 
-% login
-% --------------------------------------------------------
-
-if isunix
-    home = getenv('HOME');
-    P    = fullfile(home,'.stormdblogin');
-elseif ispc
-    home = getenv('USERPROFILE');
-    P    = fullfile(home,'stormdblogin');
-end
-
-if ~exist(P,'file')
-    
-    u = input('Username: ','s');
-    p = input('Password: ','s');
-   
-    h = urlread(strcat(server,module,...
-        'login/username/',u,'/password/',p));
-    
-    if ~any(strfind(h,'@'))
-        error('Could not log in to Hyades')
-    end
-    
-    f = fopen(P,'w');
-    fprintf(f,'%s',h);
-    fclose(f);
-else
-    f = fopen(P,'r');
-    h = fgetl(f);
-    fclose(f);
-end
-
-if ispc
-    fileattrib(P,'+h');
-end
-
-
 % project ID and Code
+% ------------------------------------------------------
 
 projCode = '';
 
@@ -112,13 +71,39 @@ projID   = strcat('&projectId=',projID);
 projCode = strcat('&projectCode=',projCode);
 
 
+% login
+% --------------------------------------------------------
+
+h = dblogin(server, module);
+
+
 % subjects
+% ------------------------------------------------------
 
 subject = urlread(strcat(server,module,'subjects?', ...
           h,projID,projCode,included));
 
 subject = textscan(subject,'%s','delimiter','\n');
 subject = subject{:};
+
+
+% if password has changed
+      
+if any(cell2mat(regexp(subject,'error')))
+    if isunix
+        delete(fullfile(getenv('HOME'),'.stormdblogin'))
+    elseif ispc
+        delete(fullfile(getenv('USERPROFILE'),'stormdblogin'))
+    end
+    
+    h = dblogin(server, module);
+    
+    subject = urlread(strcat(server,module,'subjects?', ...
+          h,projID,projCode,included));
+    
+    subject = textscan(subject,'%s','delimiter','\n');
+    subject = subject{:};  
+end
 
 
 % subject meta (group or treatment)
@@ -136,13 +121,12 @@ if any(k)
             h,projID,projCode,'&subjectNo=',subject{i}, ...
             '&prop=',urlencode(prop{k})));
         
-        s(i) = strcmpi(S.(prop{k}),x);
+        s(i) = any(strcmpi(S.(prop{k}),x));
     end
     
     % update
     
     subject = subject(s);
-    index   = subject;
 end    
 
 
@@ -334,16 +318,49 @@ end
 
 
 
+% login
+% ------------------------------------------
+
+function h = dblogin(server, module)
+
+if isunix
+    P = fullfile(getenv('HOME'),'.stormdblogin');
+elseif ispc
+    P = fullfile(getenv('USERPROFILE'),'stormdblogin');
+end
+
+if ~exist(P,'file')
+    
+    u = input('Username: ','s');
+    p = input('Password: ','s');
+   
+    h = urlread(strcat(server,module,...
+        'login/username/',u,'/password/',p));
+    
+    if ~any(strfind(h,'@'))
+        error('Could not log in to Hyades')
+    end
+    
+    f = fopen(P,'w');
+    fprintf(f,'%s',h);
+    fclose(f);
+else
+    f = fopen(P,'r');
+    h = fgetl(f);
+    fclose(f);
+end
+
+if ispc
+    fileattrib(P,'+h');
+end
+
+
 % unpack
+% -----------------------------------------
 
 function x = unpack(x)
 
 while iscell(x) && (length(x) == 1)
     x = x{:};
 end
-
-
-% implement series aux, info and comments
-
-% age from cpr and study date
 
